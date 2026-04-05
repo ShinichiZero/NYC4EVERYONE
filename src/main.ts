@@ -92,6 +92,12 @@ interface GeocoderRecord {
     coordinates?: [number, number];
   };
 }
+const CONDITION_STATUS_MAP: Record<string, CurbStatusFilter> = {
+  good: 'compliant',
+  fair: 'high_incline',
+  poor: 'damaged',
+  damaged: 'damaged',
+};
 const appState: {
   map: MLMap | null;
   popup: SanitizedPopup | null;
@@ -357,7 +363,7 @@ function wireMapControls(managerMap: MLMap, manager: OfflineManager): void {
   });
 
   btnRefresh?.addEventListener('click', () => {
-    void manager.init().then(() => refreshData(managerMap));
+    void manager.init().then(() => void refreshData(managerMap));
   });
 
   toggleCurbCuts?.addEventListener('change', () => {
@@ -472,7 +478,7 @@ function restoreRouteFromSession(map: MLMap): void {
     appState.routeCoords = line.coordinates
       .filter((coord): coord is [number, number] =>
         Array.isArray(coord) &&
-        coord.length >= MIN_ROUTE_COORDS &&
+        coord.length === MIN_ROUTE_COORDS &&
         Number.isFinite(coord[0]) &&
         Number.isFinite(coord[1]))
       .map((coord) => [coord[0], coord[1]]);
@@ -539,8 +545,8 @@ async function refreshData(map: MLMap): Promise<void> {
     const safeMinLon = minLon.toFixed(6);
     const safeMinLat = minLat.toFixed(6);
     const safeMaxLon = maxLon.toFixed(6);
-    const where = encodeURIComponent(`within_box(the_geom, ${safeMaxLat}, ${safeMinLon}, ${safeMinLat}, ${safeMaxLon})`);
-    const curbUrl = `https://data.cityofnewyork.us/resource/mz9f-kzab.json?$limit=5000&$where=${where}`;
+    const curbWhereClause = encodeURIComponent(`within_box(the_geom, ${safeMaxLat}, ${safeMinLon}, ${safeMinLat}, ${safeMaxLon})`);
+    const curbUrl = `https://data.cityofnewyork.us/resource/mz9f-kzab.json?$limit=5000&$where=${curbWhereClause}`;
     const complaintsUrl = `https://data.cityofnewyork.us/resource/erm2-nwe9.json?$limit=300&$where=${encodeURIComponent(
       `within_box(location, ${safeMaxLat}, ${safeMinLon}, ${safeMinLat}, ${safeMaxLon}) AND descriptor like '%Access%'`,
     )}`;
@@ -556,17 +562,7 @@ async function refreshData(map: MLMap): Promise<void> {
         const lon = Number(item['longitude']);
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
         const condition = String(item['physical_condition'] ?? '').toLowerCase();
-        const CONDITION_STATUS_MAP: Record<string, CurbStatusFilter> = {
-          good: 'compliant',
-          fair: 'high_incline',
-          poor: 'damaged',
-          damaged: 'damaged',
-        };
-        const status: CurbStatusFilter =
-          condition === ''
-            ? 'compliant'
-            : Object.entries(CONDITION_STATUS_MAP).find(([key]) => condition.includes(key))?.[1] ??
-              (condition.includes('slope') ? 'high_incline' : 'damaged');
+        const status = inferCurbStatus(condition);
         const sourceUpdatedAt = item['updated_at'];
         const sourceTimestamp = typeof sourceUpdatedAt === 'string' ? sourceUpdatedAt : new Date().toISOString();
         return {
@@ -644,6 +640,14 @@ function sanitizeBound(
   const fallback = axis === 'lat' ? 40.75 : -73.98;
   const safe = Number.isFinite(value) ? value : fallback;
   return Math.min(max, Math.max(min, safe));
+}
+
+function inferCurbStatus(condition: string): CurbStatusFilter {
+  if (condition === '') return 'compliant';
+  const mapped = Object.entries(CONDITION_STATUS_MAP).find(([key]) => condition.includes(key))?.[1];
+  if (mapped) return mapped;
+  if (condition.includes('slope')) return 'high_incline';
+  return 'damaged';
 }
 
 /* ── Progress bar helpers ────────────────────────────────────── */
