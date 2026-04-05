@@ -28,6 +28,8 @@ const TILE_URL_TEMPLATE =
 // NYC Open Data / MTA curb-cut & elevator layer endpoints are handled
 // inside OfflineManager.  Set your MTA API key here or via env variable.
 const MTA_API_KEY: string | undefined = undefined; // 'YOUR_MTA_KEY'
+const DEFAULT_ZOOM_LEVEL = 15;
+const MIN_ROUTE_COORDS = 2;
 const MAP_STYLE: Style = {
   version: 8,
   sources: {
@@ -59,7 +61,14 @@ const MAP_STYLE: Style = {
   ],
 };
 const NYC_BOUNDS: [number, number, number, number] = [-74.30, 40.45, -73.65, 40.95];
+const NYC_BOUNDS_BOX = {
+  minLon: NYC_BOUNDS[0],
+  minLat: NYC_BOUNDS[1],
+  maxLon: NYC_BOUNDS[2],
+  maxLat: NYC_BOUNDS[3],
+};
 type CurbStatusFilter = 'compliant' | 'high_incline' | 'damaged';
+type MutableGeoJSONSource = { setData: (data: GeoJSON.FeatureCollection | GeoJSON.FeatureCollection<GeoJSON.Point>) => void };
 interface CurbFeatureRecord {
   id: string;
   lat: number;
@@ -319,7 +328,7 @@ function wireMapControls(managerMap: MLMap, manager: OfflineManager): void {
     navigator.geolocation.getCurrentPosition((position) => {
       managerMap.flyTo({
         center: [position.coords.longitude, position.coords.latitude],
-        zoom: 15,
+        zoom: DEFAULT_ZOOM_LEVEL,
       });
     });
   });
@@ -328,17 +337,21 @@ function wireMapControls(managerMap: MLMap, manager: OfflineManager): void {
     appState.is3d = !appState.is3d;
     btn3d.setAttribute('aria-pressed', String(appState.is3d));
     managerMap.setPitch(appState.is3d ? 60 : 25);
-    const terrainMap = managerMap as MLMap & {
+    const terrainCandidate = managerMap as MLMap & {
       setTerrain?: (config: { source: string; exaggeration?: number } | null) => void;
     };
     if (appState.is3d) {
       try {
-        terrainMap.setTerrain?.({ source: 'terrain', exaggeration: 1.2 });
+        if (typeof terrainCandidate.setTerrain === 'function') {
+          terrainCandidate.setTerrain({ source: 'terrain', exaggeration: 1.2 });
+        }
       } catch {
         managerMap.setPitch(60);
       }
     } else {
-      terrainMap.setTerrain?.(null);
+      if (typeof terrainCandidate.setTerrain === 'function') {
+        terrainCandidate.setTerrain(null);
+      }
     }
   });
 
@@ -441,7 +454,7 @@ function handleMapClickForRouteCapture(lon: number, lat: number): void {
 }
 
 function persistRoute(): void {
-  if (appState.routeCoords.length < 2) return;
+  if (appState.routeCoords.length < MIN_ROUTE_COORDS) return;
   const lineString: GeoJSON.LineString = {
     type: 'LineString',
     coordinates: appState.routeCoords,
@@ -450,12 +463,12 @@ function persistRoute(): void {
 }
 
 function renderRoute(map: MLMap): void {
-  const src = map.getSource('user-route') as { setData: (data: GeoJSON.FeatureCollection) => void } | undefined;
+  const src = map.getSource('user-route') as MutableGeoJSONSource | undefined;
   if (!src) return;
   const featureCollection: GeoJSON.FeatureCollection = {
     type: 'FeatureCollection',
     features:
-      appState.routeCoords.length < 2
+      appState.routeCoords.length < MIN_ROUTE_COORDS
         ? []
         : [{
             type: 'Feature',
@@ -476,16 +489,19 @@ function updateSummary(text: string): void {
 
 async function geocodeAndFlyTo(map: MLMap, query: string): Promise<void> {
   try {
-    const url = `https://data.cityofnewyork.us/resource/ge8j-uqbf.json?$limit=1&$select=display_name,the_geom&$where=${encodeURIComponent(
-      `UPPER(display_name) like UPPER('%${query.replace(/'/g, "''")}%')`,
-    )}`;
+    const searchParams = new URLSearchParams({
+      '$limit': '1',
+      '$select': 'display_name,the_geom',
+      '$q': query,
+    });
+    const url = `https://data.cityofnewyork.us/resource/ge8j-uqbf.json?${searchParams.toString()}`;
     const response = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!response.ok) return;
     const data = (await response.json()) as GeocoderRecord[];
     const first = data[0];
     const coords = first?.the_geom?.coordinates;
     if (!coords) return;
-    map.flyTo({ center: [Number(coords[0]), Number(coords[1])], zoom: 15 });
+    map.flyTo({ center: [Number(coords[0]), Number(coords[1])], zoom: DEFAULT_ZOOM_LEVEL });
   } catch {
     updateSummary('Search unavailable right now.');
   }
@@ -495,10 +511,10 @@ async function refreshData(map: MLMap): Promise<void> {
   updateSummary('Loading NYC accessibility data…');
   try {
     const bounds = map.getBounds();
-    const minLon = bounds.getWest();
-    const minLat = bounds.getSouth();
-    const maxLon = bounds.getEast();
-    const maxLat = bounds.getNorth();
+    const minLon = sanitizeBound(bounds.getWest(), 'lon', NYC_BOUNDS_BOX.minLon, NYC_BOUNDS_BOX.maxLon);
+    const minLat = sanitizeBound(bounds.getSouth(), 'lat', NYC_BOUNDS_BOX.minLat, NYC_BOUNDS_BOX.maxLat);
+    const maxLon = sanitizeBound(bounds.getEast(), 'lon', NYC_BOUNDS_BOX.minLon, NYC_BOUNDS_BOX.maxLon);
+    const maxLat = sanitizeBound(bounds.getNorth(), 'lat', NYC_BOUNDS_BOX.minLat, NYC_BOUNDS_BOX.maxLat);
     const where = encodeURIComponent(`within_box(the_geom, ${maxLat}, ${minLon}, ${minLat}, ${maxLon})`);
     const curbUrl = `https://data.cityofnewyork.us/resource/mz9f-kzab.json?$limit=5000&$where=${where}`;
     const complaintsUrl = `https://data.cityofnewyork.us/resource/erm2-nwe9.json?$limit=300&$where=${encodeURIComponent(
@@ -558,7 +574,7 @@ async function refreshData(map: MLMap): Promise<void> {
       features: complaintFeatures,
     };
     appState.complaintsGeoJson = complaintsGeoJson;
-    const complaintsSource = map.getSource('complaints') as { setData: (data: GeoJSON.FeatureCollection<GeoJSON.Point>) => void } | undefined;
+    const complaintsSource = map.getSource('complaints') as MutableGeoJSONSource | undefined;
     if (complaintsSource) complaintsSource.setData(complaintsGeoJson);
     updateSummary(`Loaded ${curbFeatures.length} curb cuts and ${complaintsGeoJson.features.length} 311 records.`);
   } catch {
@@ -567,7 +583,7 @@ async function refreshData(map: MLMap): Promise<void> {
 }
 
 function updateCurbSource(map: MLMap, features: CurbFeatureRecord[]): void {
-  const source = map.getSource('curb-cuts') as { setData: (data: GeoJSON.FeatureCollection<GeoJSON.Point>) => void } | undefined;
+  const source = map.getSource('curb-cuts') as MutableGeoJSONSource | undefined;
   if (!source) return;
   const geojson: GeoJSON.FeatureCollection<GeoJSON.Point> = {
     type: 'FeatureCollection',
@@ -586,6 +602,17 @@ function updateCurbSource(map: MLMap, features: CurbFeatureRecord[]): void {
     })),
   };
   source.setData(geojson);
+}
+
+function sanitizeBound(
+  value: number,
+  axis: 'lat' | 'lon',
+  min: number,
+  max: number,
+): number {
+  const fallback = axis === 'lat' ? 40.75 : -73.98;
+  const safe = Number.isFinite(value) ? value : fallback;
+  return Math.min(max, Math.max(min, safe));
 }
 
 /* ── Progress bar helpers ────────────────────────────────────── */
