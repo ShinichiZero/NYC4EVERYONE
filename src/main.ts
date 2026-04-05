@@ -77,6 +77,12 @@ interface ComplaintRecord {
   incident_address?: string;
   created_date?: string;
 }
+interface GeocoderRecord {
+  display_name?: string;
+  the_geom?: {
+    coordinates?: [number, number];
+  };
+}
 const appState: {
   map: MLMap | null;
   popup: SanitizedPopup | null;
@@ -167,14 +173,11 @@ window.addEventListener('DOMContentLoaded', async () => {
   map.on('click', 'complaints', (e) => {
     const feature = e.features?.[0];
     if (!feature || !popup) return;
-    popup.renderCurbCut({
-      id: String(feature.properties?.['id'] ?? ''),
-      lat: e.lngLat.lat,
-      lon: e.lngLat.lng,
-      status: 'high_incline',
-      location: String(feature.properties?.['title'] ?? '311 accessibility complaint'),
-      updatedAt: String(feature.properties?.['created'] ?? ''),
-    });
+    popup.renderInfoCard(
+      String(feature.properties?.['title'] ?? '311 accessibility complaint'),
+      String(feature.properties?.['address'] ?? 'Location details unavailable'),
+      String(feature.properties?.['created'] ?? ''),
+    );
   });
   map.on('click', (e) => handleMapClickForRouteCapture(e.lngLat.lng, e.lngLat.lat));
 
@@ -324,8 +327,10 @@ function wireMapControls(managerMap: MLMap, manager: OfflineManager): void {
   btn3d?.addEventListener('click', () => {
     appState.is3d = !appState.is3d;
     btn3d.setAttribute('aria-pressed', String(appState.is3d));
-      managerMap.setPitch(appState.is3d ? 60 : 25);
-    const terrainMap = managerMap as unknown as { setTerrain?: (config: { source: string; exaggeration?: number } | null) => void };
+    managerMap.setPitch(appState.is3d ? 60 : 25);
+    const terrainMap = managerMap as MLMap & {
+      setTerrain?: (config: { source: string; exaggeration?: number } | null) => void;
+    };
     if (appState.is3d) {
       try {
         terrainMap.setTerrain?.({ source: 'terrain', exaggeration: 1.2 });
@@ -471,13 +476,16 @@ function updateSummary(text: string): void {
 
 async function geocodeAndFlyTo(map: MLMap, query: string): Promise<void> {
   try {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&viewbox=-74.3,40.95,-73.65,40.45&bounded=1&q=${encodeURIComponent(query)}`;
+    const url = `https://data.cityofnewyork.us/resource/ge8j-uqbf.json?$limit=1&$select=display_name,the_geom&$where=${encodeURIComponent(
+      `UPPER(display_name) like UPPER('%${query.replace(/'/g, "''")}%')`,
+    )}`;
     const response = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!response.ok) return;
-    const data = (await response.json()) as Array<{ lon: string; lat: string }>;
+    const data = (await response.json()) as GeocoderRecord[];
     const first = data[0];
-    if (!first) return;
-    map.flyTo({ center: [Number(first.lon), Number(first.lat)], zoom: 15 });
+    const coords = first?.the_geom?.coordinates;
+    if (!coords) return;
+    map.flyTo({ center: [Number(coords[0]), Number(coords[1])], zoom: 15 });
   } catch {
     updateSummary('Search unavailable right now.');
   }
@@ -494,7 +502,7 @@ async function refreshData(map: MLMap): Promise<void> {
     const where = encodeURIComponent(`within_box(the_geom, ${maxLat}, ${minLon}, ${minLat}, ${maxLon})`);
     const curbUrl = `https://data.cityofnewyork.us/resource/mz9f-kzab.json?$limit=5000&$where=${where}`;
     const complaintsUrl = `https://data.cityofnewyork.us/resource/erm2-nwe9.json?$limit=300&$where=${encodeURIComponent(
-      `within_box(location, ${maxLat}, ${minLon}, ${minLat}, ${maxLon}) AND complaint_type like 'Street Condition%'`,
+      `within_box(location, ${maxLat}, ${minLon}, ${minLat}, ${maxLon}) AND descriptor like '%Access%'`,
     )}`;
     const [curbResp, complaintsResp] = await Promise.all([
       fetch(curbUrl, { headers: { Accept: 'application/json' } }),
