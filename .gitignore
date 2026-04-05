@@ -1,0 +1,11 @@
+node_modules/
+dist/
+_site/
+.jekyll-cache/
+.jekyll-metadata
+*.gem
+Gemfile.lock
+.bundle/
+vendor/
+assets/js/main.js
+assets/js/main.js.map
