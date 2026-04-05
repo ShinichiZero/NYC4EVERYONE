@@ -1,0 +1,30 @@
+title: "NYC4EVERYONE – AccessNYC"
+description: "A Progressive Web App for NYC accessibility information"
+baseurl: "/NYC4EVERYONE"
+url: "https://shinichizero.github.io"
+
+# Build settings
+theme: null
+plugins: []
+
+# Sass/SCSS
+sass:
+  style: compressed
+
+# Exclude build artifacts and source files from the Jekyll output
+exclude:
+  - node_modules/
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - src/
+  - dist/
+  - "*.ts"
+  - README.md
+  - .gitignore
+
+# Include compiled assets
+include:
+  - assets/
+  - manifest.json
+  - sw.js

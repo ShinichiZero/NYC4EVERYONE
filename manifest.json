@@ -1,0 +1,24 @@
+{
+  "name": "AccessNYC",
+  "short_name": "AccessNYC",
+  "description": "NYC accessibility tracker — curb cuts, elevators, offline maps",
+  "start_url": "/NYC4EVERYONE/",
+  "display": "standalone",
+  "background_color": "#1a1a2e",
+  "theme_color": "#0f3460",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/NYC4EVERYONE/assets/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/NYC4EVERYONE/assets/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

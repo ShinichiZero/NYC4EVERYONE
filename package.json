@@ -1,0 +1,21 @@
+{
+  "name": "nyc4everyone",
+  "version": "1.0.0",
+  "description": "AccessNYC – a Progressive Web App for tracking accessibility in NYC",
+  "private": true,
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --outfile=assets/js/main.js --format=iife --global-name=AccessNYC --minify --sourcemap",
+    "dev": "esbuild src/main.ts --bundle --outfile=assets/js/main.js --format=iife --global-name=AccessNYC --watch",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dompurify": "^3.2.3"
+  },
+  "devDependencies": {
+    "@types/dompurify": "^3.0.5",
+    "@types/geojson": "^7946.0.14",
+    "@types/maplibre-gl": "^1.13.2",
+    "esbuild": "^0.25.2",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.maptiler.com; style-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' https:; img-src 'self' data: blob: https:; worker-src 'self' blob:;" />
+  <title>AccessNYC</title>
+  <link rel="manifest" href="{{ '/manifest.json' | relative_url }}" />
+  <meta name="theme-color" content="#0f3460" />
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.0/dist/maplibre-gl.css" />
+  <link rel="stylesheet" href="{{ '/assets/css/main.css' | relative_url }}" />
+</head>
+<body>
+  <header class="app-header">
+    <h1 class="app-title">AccessNYC</h1>
+    <div class="header-controls">
+      <button id="btn-offline-toggle"
+              class="btn btn--outline"
+              aria-pressed="false"
+              aria-label="Toggle offline mode">
+        Go Offline
+      </button>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <!-- Map container -->
+    <div id="map" role="application" aria-label="NYC accessibility map"></div>
+
+    <!-- Offline panel -->
+    <aside id="offline-panel" class="offline-panel" aria-label="Offline caching options" hidden>
+      <h2 class="offline-panel__title">Offline Caching</h2>
+
+      <section class="offline-section">
+        <h3>Cache Area (5-mile radius)</h3>
+        <p class="offline-section__desc">
+          Downloads all map tiles and accessibility data within 5 miles of a
+          point you tap on the map.
+        </p>
+        <button id="btn-cache-area" class="btn btn--primary" aria-label="Start caching 5-mile area">
+          Select Point &amp; Cache
+        </button>
+      </section>
+
+      <section class="offline-section">
+        <h3>Cache Route (500 m buffer)</h3>
+        <p class="offline-section__desc">
+          Downloads tiles and data along a recorded or pasted route.
+        </p>
+        <button id="btn-cache-route" class="btn btn--primary" aria-label="Start caching along current route">
+          Cache Current Route
+        </button>
+      </section>
+
+      <div id="cache-progress" class="cache-progress" aria-live="polite" aria-atomic="true" hidden>
+        <div class="cache-progress__bar" role="progressbar"
+             aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+          <div class="cache-progress__fill" style="width: 0%"></div>
+        </div>
+        <p class="cache-progress__label">Downloading…</p>
+      </div>
+    </aside>
+
+    <!-- Elevator / curb-cut popup anchor -->
+    <div id="popup-container" role="region" aria-label="Feature details"></div>
+  </main>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.0/dist/maplibre-gl.js"></script>
+  <script src="{{ '/assets/js/main.js' | relative_url }}"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker
+          .register('{{ "/sw.js" | relative_url }}', { scope: '{{ "/" | relative_url }}' })
+          .catch(function (err) { console.warn('SW registration failed:', err); });
+      });
+    }
+  </script>
+</body>
+</html>
