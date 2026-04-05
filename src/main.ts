@@ -68,7 +68,7 @@ const NYC_BOUNDS_BOX = {
   maxLat: NYC_BOUNDS[3],
 };
 type CurbStatusFilter = 'compliant' | 'high_incline' | 'damaged';
-type MutableGeoJSONSource = { setData: (data: GeoJSON.FeatureCollection | GeoJSON.FeatureCollection<GeoJSON.Point>) => void };
+type MutableGeoJSONSource = { setData: (data: GeoJSON.FeatureCollection) => void };
 interface CurbFeatureRecord {
   id: string;
   lat: number;
@@ -154,6 +154,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     addElevatorLayer(map);
     addRouteLayer(map);
     addComplaintLayer(map);
+    restoreRouteFromSession(map);
     void refreshData(map);
   });
 
@@ -337,20 +338,20 @@ function wireMapControls(managerMap: MLMap, manager: OfflineManager): void {
     appState.is3d = !appState.is3d;
     btn3d.setAttribute('aria-pressed', String(appState.is3d));
     managerMap.setPitch(appState.is3d ? 60 : 25);
-    const terrainCandidate = managerMap as MLMap & {
+    const mapWithTerrain = managerMap as MLMap & {
       setTerrain?: (config: { source: string; exaggeration?: number } | null) => void;
     };
     if (appState.is3d) {
       try {
-        if (typeof terrainCandidate.setTerrain === 'function') {
-          terrainCandidate.setTerrain({ source: 'terrain', exaggeration: 1.2 });
+        if (typeof mapWithTerrain.setTerrain === 'function') {
+          mapWithTerrain.setTerrain({ source: 'terrain', exaggeration: 1.2 });
         }
       } catch {
         managerMap.setPitch(60);
       }
     } else {
-      if (typeof terrainCandidate.setTerrain === 'function') {
-        terrainCandidate.setTerrain(null);
+      if (typeof mapWithTerrain.setTerrain === 'function') {
+        mapWithTerrain.setTerrain(null);
       }
     }
   });
@@ -462,6 +463,25 @@ function persistRoute(): void {
   sessionStorage.setItem('currentRoute', JSON.stringify(lineString));
 }
 
+function restoreRouteFromSession(map: MLMap): void {
+  const stored = sessionStorage.getItem('currentRoute');
+  if (!stored) return;
+  try {
+    const line = JSON.parse(stored) as GeoJSON.LineString;
+    if (line.type !== 'LineString' || line.coordinates.length < MIN_ROUTE_COORDS) return;
+    appState.routeCoords = line.coordinates
+      .filter((coord): coord is [number, number] =>
+        Array.isArray(coord) &&
+        coord.length >= MIN_ROUTE_COORDS &&
+        Number.isFinite(coord[0]) &&
+        Number.isFinite(coord[1]))
+      .map((coord) => [coord[0], coord[1]]);
+    renderRoute(map);
+  } catch {
+    sessionStorage.removeItem('currentRoute');
+  }
+}
+
 function renderRoute(map: MLMap): void {
   const src = map.getSource('user-route') as MutableGeoJSONSource | undefined;
   if (!src) return;
@@ -515,10 +535,14 @@ async function refreshData(map: MLMap): Promise<void> {
     const minLat = sanitizeBound(bounds.getSouth(), 'lat', NYC_BOUNDS_BOX.minLat, NYC_BOUNDS_BOX.maxLat);
     const maxLon = sanitizeBound(bounds.getEast(), 'lon', NYC_BOUNDS_BOX.minLon, NYC_BOUNDS_BOX.maxLon);
     const maxLat = sanitizeBound(bounds.getNorth(), 'lat', NYC_BOUNDS_BOX.minLat, NYC_BOUNDS_BOX.maxLat);
-    const where = encodeURIComponent(`within_box(the_geom, ${maxLat}, ${minLon}, ${minLat}, ${maxLon})`);
+    const safeMaxLat = maxLat.toFixed(6);
+    const safeMinLon = minLon.toFixed(6);
+    const safeMinLat = minLat.toFixed(6);
+    const safeMaxLon = maxLon.toFixed(6);
+    const where = encodeURIComponent(`within_box(the_geom, ${safeMaxLat}, ${safeMinLon}, ${safeMinLat}, ${safeMaxLon})`);
     const curbUrl = `https://data.cityofnewyork.us/resource/mz9f-kzab.json?$limit=5000&$where=${where}`;
     const complaintsUrl = `https://data.cityofnewyork.us/resource/erm2-nwe9.json?$limit=300&$where=${encodeURIComponent(
-      `within_box(location, ${maxLat}, ${minLon}, ${minLat}, ${maxLon}) AND descriptor like '%Access%'`,
+      `within_box(location, ${safeMaxLat}, ${safeMinLon}, ${safeMinLat}, ${safeMaxLon}) AND descriptor like '%Access%'`,
     )}`;
     const [curbResp, complaintsResp] = await Promise.all([
       fetch(curbUrl, { headers: { Accept: 'application/json' } }),
@@ -532,19 +556,26 @@ async function refreshData(map: MLMap): Promise<void> {
         const lon = Number(item['longitude']);
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
         const condition = String(item['physical_condition'] ?? '').toLowerCase();
+        const CONDITION_STATUS_MAP: Record<string, CurbStatusFilter> = {
+          good: 'compliant',
+          fair: 'high_incline',
+          poor: 'damaged',
+          damaged: 'damaged',
+        };
         const status: CurbStatusFilter =
-          condition.includes('good') || condition === ''
+          condition === ''
             ? 'compliant'
-            : condition.includes('fair') || condition.includes('slope')
-            ? 'high_incline'
-            : 'damaged';
+            : Object.entries(CONDITION_STATUS_MAP).find(([key]) => condition.includes(key))?.[1] ??
+              (condition.includes('slope') ? 'high_incline' : 'damaged');
+        const sourceUpdatedAt = item['updated_at'];
+        const sourceTimestamp = typeof sourceUpdatedAt === 'string' ? sourceUpdatedAt : new Date().toISOString();
         return {
           id: String(item['objectid'] ?? `${lat},${lon}`),
           lat,
           lon,
           status,
           location: String(item['on_street'] ?? ''),
-          updatedAt: new Date().toISOString(),
+          updatedAt: sourceTimestamp,
         } satisfies CurbFeatureRecord;
       })
       .filter((feature): feature is CurbFeatureRecord => feature !== null);
