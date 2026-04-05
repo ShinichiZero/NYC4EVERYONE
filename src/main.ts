@@ -15,6 +15,7 @@ import { SanitizedPopup } from './SanitizedPopup.js';
 import { openDB, saveElevatorStatus } from './db.js';
 import type { ElevatorStatus } from './db.js';
 import type { Map as MLMap } from 'maplibre-gl';
+import type { Style } from 'maplibre-gl';
 
 /* ── MapLibre is loaded as a global via CDN script tag ─────── */
 declare const maplibregl: typeof import('maplibre-gl');
@@ -27,7 +28,7 @@ const TILE_URL_TEMPLATE =
 // NYC Open Data / MTA curb-cut & elevator layer endpoints are handled
 // inside OfflineManager.  Set your MTA API key here or via env variable.
 const MTA_API_KEY: string | undefined = undefined; // 'YOUR_MTA_KEY'
-const MAP_STYLE: import('maplibre-gl').StyleSpecification = {
+const MAP_STYLE: Style = {
   version: 8,
   sources: {
     'osm-raster': {
@@ -163,7 +164,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       updatedAt: String(props['updatedAt'] ?? ''),
     });
   });
-  map.on('click', 'complaints', (e: maplibregl.MapLayerMouseEvent) => {
+  map.on('click', 'complaints', (e) => {
     const feature = e.features?.[0];
     if (!feature || !popup) return;
     popup.renderCurbCut({
@@ -323,15 +324,16 @@ function wireMapControls(managerMap: MLMap, manager: OfflineManager): void {
   btn3d?.addEventListener('click', () => {
     appState.is3d = !appState.is3d;
     btn3d.setAttribute('aria-pressed', String(appState.is3d));
-    managerMap.setPitch(appState.is3d ? 60 : 25);
+      managerMap.setPitch(appState.is3d ? 60 : 25);
+    const terrainMap = managerMap as unknown as { setTerrain?: (config: { source: string; exaggeration?: number } | null) => void };
     if (appState.is3d) {
       try {
-        managerMap.setTerrain({ source: 'terrain', exaggeration: 1.2 });
+        terrainMap.setTerrain?.({ source: 'terrain', exaggeration: 1.2 });
       } catch {
         managerMap.setPitch(60);
       }
     } else {
-      managerMap.setTerrain(null);
+      terrainMap.setTerrain?.(null);
     }
   });
 
@@ -443,7 +445,7 @@ function persistRoute(): void {
 }
 
 function renderRoute(map: MLMap): void {
-  const src = map.getSource('user-route') as maplibregl.GeoJSONSource | undefined;
+  const src = map.getSource('user-route') as { setData: (data: GeoJSON.FeatureCollection) => void } | undefined;
   if (!src) return;
   const featureCollection: GeoJSON.FeatureCollection = {
     type: 'FeatureCollection',
@@ -524,31 +526,31 @@ async function refreshData(map: MLMap): Promise<void> {
       .filter((feature): feature is CurbFeatureRecord => feature !== null);
     appState.curbFeatures = curbFeatures;
     updateCurbSource(map, curbFeatures);
+    const complaintFeatures: GeoJSON.Feature<GeoJSON.Point>[] = [];
+    for (const row of complaintsRaw) {
+      const lat = Number(row.latitude);
+      const lon = Number(row.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      complaintFeatures.push({
+        type: 'Feature',
+        geometry: {
+          type: 'Point',
+          coordinates: [lon, lat],
+        },
+        properties: {
+          id: row.unique_key ?? '',
+          title: row.descriptor ?? row.complaint_type ?? '311 accessibility complaint',
+          created: row.created_date ?? '',
+          address: row.incident_address ?? '',
+        },
+      });
+    }
     const complaintsGeoJson: GeoJSON.FeatureCollection<GeoJSON.Point> = {
       type: 'FeatureCollection',
-      features: complaintsRaw
-        .map((row) => {
-          const lat = Number(row.latitude);
-          const lon = Number(row.longitude);
-          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-          return {
-            type: 'Feature',
-            geometry: {
-              type: 'Point',
-              coordinates: [lon, lat],
-            },
-            properties: {
-              id: row.unique_key ?? '',
-              title: row.descriptor ?? row.complaint_type ?? '311 accessibility complaint',
-              created: row.created_date ?? '',
-              address: row.incident_address ?? '',
-            },
-          } satisfies GeoJSON.Feature<GeoJSON.Point>;
-        })
-        .filter((feature): feature is GeoJSON.Feature<GeoJSON.Point> => feature !== null),
+      features: complaintFeatures,
     };
     appState.complaintsGeoJson = complaintsGeoJson;
-    const complaintsSource = map.getSource('complaints') as maplibregl.GeoJSONSource | undefined;
+    const complaintsSource = map.getSource('complaints') as { setData: (data: GeoJSON.FeatureCollection<GeoJSON.Point>) => void } | undefined;
     if (complaintsSource) complaintsSource.setData(complaintsGeoJson);
     updateSummary(`Loaded ${curbFeatures.length} curb cuts and ${complaintsGeoJson.features.length} 311 records.`);
   } catch {
@@ -557,7 +559,7 @@ async function refreshData(map: MLMap): Promise<void> {
 }
 
 function updateCurbSource(map: MLMap, features: CurbFeatureRecord[]): void {
-  const source = map.getSource('curb-cuts') as maplibregl.GeoJSONSource | undefined;
+  const source = map.getSource('curb-cuts') as { setData: (data: GeoJSON.FeatureCollection<GeoJSON.Point>) => void } | undefined;
   if (!source) return;
   const geojson: GeoJSON.FeatureCollection<GeoJSON.Point> = {
     type: 'FeatureCollection',
