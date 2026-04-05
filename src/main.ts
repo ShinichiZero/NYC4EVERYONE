@@ -30,6 +30,7 @@ const TILE_URL_TEMPLATE =
 const MTA_API_KEY: string | undefined = undefined; // 'YOUR_MTA_KEY'
 const DEFAULT_ZOOM_LEVEL = 15;
 const MIN_ROUTE_COORDS = 2;
+const COORDINATE_TUPLE_LENGTH = 2;
 const MAP_STYLE: Style = {
   version: 8,
   sources: {
@@ -250,6 +251,22 @@ function addElevatorLayer(map: MLMap): void {
       'circle-stroke-color': '#0b1d32',
     },
   });
+  map.addLayer({
+    id: 'elevator-labels',
+    type: 'symbol',
+    source: 'elevators',
+    layout: {
+      'text-field': ['get', 'stationName'],
+      'text-offset': [0, 1.2],
+      'text-size': 11,
+      'text-allow-overlap': false,
+    },
+    paint: {
+      'text-color': '#90caf9',
+      'text-halo-color': 'rgba(0,0,0,0.72)',
+      'text-halo-width': 1,
+    },
+  });
 }
 
 function addRouteLayer(map: MLMap): void {
@@ -363,7 +380,10 @@ function wireMapControls(managerMap: MLMap, manager: OfflineManager): void {
   });
 
   btnRefresh?.addEventListener('click', () => {
-    void manager.init().then(() => void refreshData(managerMap));
+    void manager.init().then(() => refreshData(managerMap)).catch((error) => {
+      console.error('[AccessNYC] Refresh init failed:', error);
+      updateSummary('Refresh failed. Please try again.');
+    });
   });
 
   toggleCurbCuts?.addEventListener('change', () => {
@@ -478,7 +498,7 @@ function restoreRouteFromSession(map: MLMap): void {
     appState.routeCoords = line.coordinates
       .filter((coord): coord is [number, number] =>
         Array.isArray(coord) &&
-        coord.length === MIN_ROUTE_COORDS &&
+        coord.length === COORDINATE_TUPLE_LENGTH &&
         Number.isFinite(coord[0]) &&
         Number.isFinite(coord[1]))
       .map((coord) => [coord[0], coord[1]]);
@@ -545,6 +565,7 @@ async function refreshData(map: MLMap): Promise<void> {
     const safeMinLon = minLon.toFixed(6);
     const safeMinLat = minLat.toFixed(6);
     const safeMaxLon = maxLon.toFixed(6);
+    // Socrata within_box order: top-left(lat, lon), bottom-right(lat, lon)
     const curbWhereClause = encodeURIComponent(`within_box(the_geom, ${safeMaxLat}, ${safeMinLon}, ${safeMinLat}, ${safeMaxLon})`);
     const curbUrl = `https://data.cityofnewyork.us/resource/mz9f-kzab.json?$limit=5000&$where=${curbWhereClause}`;
     const complaintsUrl = `https://data.cityofnewyork.us/resource/erm2-nwe9.json?$limit=300&$where=${encodeURIComponent(
