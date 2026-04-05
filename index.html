@@ -27,6 +27,33 @@
   <main class="app-main">
     <!-- Map container -->
     <div id="map" role="application" aria-label="NYC accessibility map"></div>
+    <section class="map-controls" aria-label="Map controls">
+      <div class="control-card search-card">
+        <label for="search-input" class="visually-hidden">Search location</label>
+        <input id="search-input" class="search-input" type="text" placeholder="Search NYC places, addresses, stations…" />
+        <button id="btn-search" class="btn btn--primary" aria-label="Search location">Search</button>
+      </div>
+      <div class="control-card button-row">
+        <button id="btn-locate" class="btn btn--outline" aria-label="Center on my location">Locate Me</button>
+        <button id="btn-3d" class="btn btn--outline" aria-pressed="false" aria-label="Toggle 3D view">3D View</button>
+        <button id="btn-refresh-data" class="btn btn--outline" aria-label="Refresh map data">Refresh Data</button>
+      </div>
+      <div class="control-card filters-card">
+        <h2 class="filters-title">Layers &amp; Filters</h2>
+        <label class="checkbox-row"><input id="toggle-curbcuts" type="checkbox" checked /> Curb cuts</label>
+        <label class="checkbox-row"><input id="toggle-complaints" type="checkbox" checked /> 311 accessibility complaints</label>
+        <div class="status-filters">
+          <label class="checkbox-row"><input id="filter-compliant" type="checkbox" checked /> Compliant</label>
+          <label class="checkbox-row"><input id="filter-high-incline" type="checkbox" checked /> High incline</label>
+          <label class="checkbox-row"><input id="filter-damaged" type="checkbox" checked /> Damaged</label>
+        </div>
+      </div>
+      <div class="control-card button-row">
+        <button id="btn-route-capture" class="btn btn--outline" aria-pressed="false" aria-label="Capture route by clicking the map">Capture Route</button>
+        <button id="btn-route-clear" class="btn btn--outline" aria-label="Clear captured route">Clear Route</button>
+      </div>
+      <p id="data-summary" class="data-summary" aria-live="polite">Ready.</p>
+    </section>
 
     <!-- Offline panel -->
     <aside id="offline-panel" class="offline-panel" aria-label="Offline caching options" hidden>
