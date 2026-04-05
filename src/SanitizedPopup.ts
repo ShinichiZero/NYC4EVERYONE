@@ -188,6 +188,30 @@ export class SanitizedPopup {
 
     this.container.appendChild(wrapper);
   }
+
+  renderInfoCard(title: string, details: string, timestamp?: string): void {
+    this.clear();
+    const wrapper = el('div', 'access-popup');
+    const heading = el('h3', 'access-popup__station');
+    heading.textContent = sanitize(title);
+    wrapper.appendChild(heading);
+
+    const statusBadge = el('span', 'access-popup__status access-popup__status--warn');
+    statusBadge.textContent = 'Info';
+    wrapper.appendChild(statusBadge);
+
+    const detailsPara = el('p', 'access-popup__alert-text');
+    detailsPara.textContent = sanitize(details);
+    wrapper.appendChild(detailsPara);
+
+    if (timestamp) {
+      const ts = el('p', 'access-popup__timestamp');
+      ts.textContent = `Reported: ${formatTimestamp(timestamp)}`;
+      wrapper.appendChild(ts);
+    }
+
+    this.container.appendChild(wrapper);
+  }
 }
 
 /* ── Helpers ─────────────────────────────────────────────────── */
